@@ -54,11 +54,11 @@ check: vet test
 
 ## upstream-push: Push to all 4 remotes
 upstream-push:
-	./Upstreams/push-all.sh
+	./upstreams/push-all.sh
 
 ## upstream-sync: Sync from all remotes
 upstream-sync:
-	./Upstreams/sync-all.sh
+	./upstreams/sync-all.sh
 
 # Definition of Done gates — portable drop-in from the parent project
 .PHONY: no-silent-skips no-silent-skips-warn demo-all demo-all-warn demo-one ci-validate-all

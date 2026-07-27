@@ -54,6 +54,7 @@ type SimpleAgentPool struct {
 	available []Agent            // ready to hand out
 	inUse     map[Agent]struct{} // currently held by callers
 	allAgents []Agent            // every Agent the pool has ever created or accepted (for Shutdown)
+	building  int                // in-flight builder calls that have reserved a capacity slot
 	closed    bool
 }
 
@@ -155,23 +156,54 @@ func (p *SimpleAgentPool) Acquire(ctx context.Context, req AgentRequirements) (A
 		}
 
 		// Build path: capacity available → invoke the injected builder.
-		if len(p.inUse)+len(p.available) < p.capacity {
-			// Release the mutex while building — the builder may do
-			// network I/O or fork a process, which can take a while.
+		// p.building counts slots reserved by in-flight builder calls so
+		// that concurrent Acquire callers cannot all pass this check and
+		// each build past the ceiling (capacity over-provisioning race):
+		// the mutex is dropped during the build, and without the
+		// reservation the released-lock window let every waiter observe
+		// the same "capacity available" state.
+		if len(p.inUse)+len(p.available)+p.building < p.capacity {
+			// Reserve the slot, then release the mutex while building —
+			// the builder may do network I/O or fork a process.
+			p.building++
 			p.mu.Unlock()
 			a, err := p.builder(ctx)
 			p.mu.Lock()
+			p.building--
 			if err != nil {
+				// The reserved slot is freed; wake a waiter that may now
+				// be able to build.
+				p.cond.Broadcast()
 				return nil, fmt.Errorf("agent.SimpleAgentPool(%q): builder failed: %w", p.name, err)
 			}
 			if a == nil {
+				p.cond.Broadcast()
 				return nil, fmt.Errorf("agent.SimpleAgentPool(%q): builder returned nil agent without error", p.name)
 			}
 			// Re-check closed state — Shutdown may have raced us.
 			if p.closed {
+				p.cond.Broadcast()
 				return nil, ErrSimpleAgentPoolClosed
 			}
 			p.allAgents = append(p.allAgents, a)
+			// LO-2: the BUILD path must honour the SAME capability contract the
+			// AVAILABLE path already enforces via takeAvailableLocked →
+			// meetsAgentRequirements. Without this, a freshly-built agent that
+			// does NOT meet req (e.g. Capabilities().MaxTokens < req.MinTokens)
+			// was handed out silently — a capability-contract violation
+			// (§11.4.108): the caller asked for MinTokens=500000 and received a
+			// 128k agent + nil err.
+			if !meetsAgentRequirements(a, req) {
+				// Park the built agent as available so a later Acquire with
+				// compatible requirements can reuse it — accounting stays exact
+				// (p.building was already decremented above; the agent now
+				// occupies its capacity slot as an available entry) — wake a
+				// waiter, and return the typed no-suitable-agent error rather
+				// than a requirement-violating agent.
+				p.available = append(p.available, a)
+				p.cond.Broadcast()
+				return nil, ErrNoSuitableAgent
+			}
 			p.inUse[a] = struct{}{}
 			return a, nil
 		}

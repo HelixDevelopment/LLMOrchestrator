@@ -6,6 +6,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -78,16 +79,27 @@ func NewMultiProviderPool(configs map[string]*PoolConfig) (*MultiProviderPool, e
 
 // Acquire gets an agent from the best available pool
 func (m *MultiProviderPool) Acquire(ctx context.Context, req AgentRequirements) (Agent, error) {
+	// LO-3: snapshot the selected pool UNDER the lock, then RELEASE the lock
+	// BEFORE calling the sub-pool's blocking Acquire (which may park on
+	// cond.Wait until a Release or Shutdown). Holding m.mu across that
+	// unbounded blocking call deadlocked Shutdown: Shutdown needs
+	// m.mu.Lock(), which a reader parked inside the sub-pool Acquire never
+	// releases, so Shutdown never reaches the per-pool broadcast that would
+	// wake the parked Acquire. Never hold a lock across an unbounded blocking
+	// call. Selection reads m.pools, so it stays under the read lock.
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	// Find best pool based on requirements
 	selected := m.selector.Select(m.pools, req)
-	if selected == "" {
+	var pool AgentPool
+	if selected != "" {
+		pool = m.pools[selected]
+	}
+	m.mu.RUnlock()
+
+	if pool == nil {
 		return nil, ErrNoSuitableAgent
 	}
 
-	return m.pools[selected].Acquire(ctx, req)
+	return pool.Acquire(ctx, req)
 }
 
 // Release returns an agent to its pool
@@ -184,11 +196,18 @@ func (r *RoundRobinSelector) Select(pools map[string]AgentPool, req AgentRequire
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Update providers list
+	// Update providers list.
+	// LO-4: map iteration order is randomised on every range, so rebuilding
+	// r.providers from it and then indexing it by r.counter rotated a
+	// re-shuffled slice — selection among equally-qualifying providers was
+	// non-deterministic run-to-run (the ROOT of the 47f8d12 flake, which
+	// commit 47f8d12 only masked at one call site via a PreferredAgent pin).
+	// Sort to a stable order so r.counter rotates deterministically.
 	r.providers = make([]string, 0, len(pools))
 	for name := range pools {
 		r.providers = append(r.providers, name)
 	}
+	sort.Strings(r.providers)
 
 	if len(r.providers) == 0 {
 		return ""
@@ -267,6 +286,16 @@ func meetsRequirements(agent Agent, req AgentRequirements) bool {
 	}
 
 	if req.NeedsStreaming && !caps.Streaming {
+		return false
+	}
+
+	// LO-2: align this selector-side matcher with the pool-local
+	// meetsAgentRequirements (simple_pool.go), which already filters on the
+	// token budget. Without this, the selector would pick a provider whose
+	// only agent the pool then refuses (its build/available path enforces
+	// MinTokens), producing a spurious no-agent outcome — the two matchers
+	// MUST agree.
+	if req.MinTokens > 0 && caps.MaxTokens < req.MinTokens {
 		return false
 	}
 

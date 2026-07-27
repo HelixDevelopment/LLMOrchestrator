@@ -1,7 +1,31 @@
 # helix-deps.yaml — llm_orchestrator Submodule-Dependency-Manifest (HelixConstitution §11.4.31)
-# Catalogue-Check (§11.4.74): inspected go.mod, go.sum; own-org deps: none.
+# Catalogue-Check (§11.4.74): inspected go.mod, go.sum; own-org deps: LLMProvider.
+# Per HelixConstitution §11.4.31 (Submodule-Dependency-Manifest Mandate).
+#
+# LLMOrchestrator (module digital.vasic.llmorchestrator) composes ONE
+# own-org Go module via its go.mod `replace` block:
+#   digital.vasic.llmprovider => ../LLMProvider  (LLMProvider).
+# The remaining go.mod requires are third-party (stretchr/testify,
+# gopkg.in/yaml.v3).
+#
+# Schema reference: <constitution-submodule>/Constitution.md §11.4.31.
+# ssh_url + org per dep derived from the dependency submodule's authoritative
+# git remote: LLMProvider is under vasic-digital. This submodule's own
+# remote is HelixDevelopment/LLMOrchestrator.
+# Layout: flat — each dep lands at <parent-project>/<dep-name>/ per
+# CONST-051(C).
+# Last updated: 2026-06-08 (§11.4.31 manifest backfill for the 5 own-org
+# submodules added 2026-06-08).
+
 schema_version: 1
-deps: []
+
+deps:
+  - name: LLMProvider
+    ssh_url: git@github.com:vasic-digital/LLMProvider.git
+    ref: main
+    why: "LLM provider abstraction consumed by the orchestration layer — go.mod replace digital.vasic.llmprovider => ../LLMProvider"
+    layout: flat
+
 transitive_handling:
   recursive: true
   conflict_resolution: operator-required

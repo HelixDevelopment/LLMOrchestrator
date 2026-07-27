@@ -115,7 +115,6 @@ LLMOrchestrator/
 │                             # supplementary Challenges
 ├── docs/
 │   ├── ARCHITECTURE.md       # design narrative
-│   ├── architecture.md       # lowercase alias (CONST-052 transition)
 │   ├── HOST_POWER_MANAGEMENT.md   # CONST-033 hard-ban anchor
 │   └── test-coverage.md      # round-275 symbol→test ledger
 ├── upstreams/                # Multi-remote sync scripts (CONST-056 transition target)

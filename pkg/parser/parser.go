@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"digital.vasic.llmorchestrator/pkg/agent"
@@ -284,34 +285,62 @@ func parseActionMap(m map[string]any) agent.Action {
 }
 
 // extractActionsFromText extracts actions from natural language text using keyword matching.
+//
+// Actions are ordered deterministically by the position at which their
+// keyword first appears in the source text. Ranging over the actionKeywords
+// map directly would make the returned slice order depend on Go's
+// randomized map iteration, so the sequence a UI-automation consumer
+// executes would vary run to run and would not follow the order the
+// instructions actually appear in the text.
 func extractActionsFromText(raw string) []agent.Action {
-	var actions []agent.Action
 	lower := strings.ToLower(raw)
+
+	type hit struct {
+		pos        int
+		actionType string
+		target     string
+	}
+	var hits []hit
 
 	for keyword, actionType := range actionKeywords {
 		idx := strings.Index(lower, keyword)
-		if idx >= 0 {
-			// Extract the target: the text following the keyword up to the next period, comma, or newline.
-			after := raw[idx+len(keyword):]
-			after = strings.TrimLeft(after, " :\"'")
-			endIdx := strings.IndexAny(after, ".,;\n\"'")
-			target := after
-			if endIdx > 0 {
-				target = after[:endIdx]
-			}
-			target = strings.TrimSpace(target)
-			if len(target) > 100 {
-				target = target[:100]
-			}
-
-			if target != "" {
-				actions = append(actions, agent.Action{
-					Type:       actionType,
-					Target:     target,
-					Confidence: 0.5, // lower confidence for text-extracted actions
-				})
-			}
+		if idx < 0 {
+			continue
 		}
+		// Extract the target: the text following the keyword up to the next period, comma, or newline.
+		after := raw[idx+len(keyword):]
+		after = strings.TrimLeft(after, " :\"'")
+		endIdx := strings.IndexAny(after, ".,;\n\"'")
+		target := after
+		if endIdx > 0 {
+			target = after[:endIdx]
+		}
+		target = strings.TrimSpace(target)
+		if len(target) > 100 {
+			target = target[:100]
+		}
+		if target != "" {
+			hits = append(hits, hit{pos: idx, actionType: actionType, target: target})
+		}
+	}
+
+	// Deterministic ordering: by first-occurrence position in the text,
+	// then by action type as a stable tie-break when two keywords share
+	// the same index.
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].pos != hits[j].pos {
+			return hits[i].pos < hits[j].pos
+		}
+		return hits[i].actionType < hits[j].actionType
+	})
+
+	actions := make([]agent.Action, 0, len(hits))
+	for _, h := range hits {
+		actions = append(actions, agent.Action{
+			Type:       h.actionType,
+			Target:     h.target,
+			Confidence: 0.5, // lower confidence for text-extracted actions
+		})
 	}
 
 	return actions

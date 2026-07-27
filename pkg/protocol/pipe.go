@@ -167,7 +167,18 @@ func (pt *PipeTransport) Receive(ctx context.Context) (PipeMessage, error) {
 	case <-ctx.Done():
 		return PipeMessage{}, ctx.Err()
 	case r := <-pt.recvCh:
-		if r.err != nil {
+		// LO-1: only WIRE-TERMINAL errors (io.EOF once the stream is
+		// exhausted, or ErrReadFailed) are sticky — they mean the wire is
+		// permanently dead, so every later Receive keeps returning them
+		// (matching termErr's doc above). A per-message parse error
+		// (ErrInvalidMessage) is RECOVERABLE: the reader loop publishes it
+		// then `continue`s reading, so Receive surfaces it to THIS caller but
+		// leaves termErr nil, letting the NEXT Receive drain the next (valid)
+		// message — aligning Receive with the reader loop's continue.
+		// Blanket-stickying ANY error wedged the transport on one malformed
+		// line, silently dropped every later valid message, and leaked the
+		// reader goroutine (blocked on the never-drained channel).
+		if r.err != nil && (errors.Is(r.err, io.EOF) || errors.Is(r.err, ErrReadFailed)) {
 			pt.mu.Lock()
 			pt.termErr = r.err
 			pt.mu.Unlock()
