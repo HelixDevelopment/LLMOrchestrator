@@ -2,7 +2,7 @@
 
 This module is a submodule of a consuming project that
 includes the Helix Constitution submodule at the parent's
-`constitution/` path. All rules in `constitution/CLAUDE.md` and the
+`constitution/` path. All rules in `constitution/GEMINI.md` and the
 `constitution/Constitution.md` it references (universal anti-bluff
 covenant §11.4, no-guessing mandate §11.4.6, credentials-handling
 mandate §11.4.10, host-session safety §12, data safety §9, mutation-
@@ -18,11 +18,11 @@ Canonical reference: <https://github.com/HelixDevelopment/HelixConstitution>
 
 ---
 
-# CLAUDE.md — LLMOrchestrator
+# GEMINI.md — LLMOrchestrator
 
-## INHERITED FROM constitution/CLAUDE.md
+## INHERITED FROM constitution/GEMINI.md
 
-All rules in `constitution/CLAUDE.md` (and the `constitution/Constitution.md` it references) apply unconditionally. This file's rules below extend them — they MUST NOT weaken any inherited rule. Use `constitution/find_constitution.sh` from the parent project root to resolve the absolute path of the submodule from any nested location.
+All rules in `constitution/GEMINI.md` (and the `constitution/Constitution.md` it references) apply unconditionally. This file's rules below extend them — they MUST NOT weaken any inherited rule. Use `constitution/find_constitution.sh` from the parent project root to resolve the absolute path of the submodule from any nested location.
 
 ## Module Overview
 
